@@ -1,1 +1,621 @@
-<h1>Hadal Drift</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hadal Drift</title>
+<style>
+  :root{
+    --abyss:#010409; --ink:#dff7f0; --mut:#7fa8a0;
+    --glow:#46f0d2; --teal:#2ee6a8; --warm:#ffd9a0;
+    --danger:#ff5d6c; --panel:rgba(4,14,20,.86); --line:rgba(70,240,210,.22);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;background:var(--abyss);overflow:hidden;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);
+    -webkit-user-select:none;user-select:none;touch-action:none;}
+  #app{position:fixed;inset:0;overflow:hidden;}
+  #game{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+    padding:calc(8px + env(safe-area-inset-top)) 12px 8px;pointer-events:none;z-index:5;}
+  #hud .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+    padding:8px 12px;font-size:14px;font-weight:700;letter-spacing:.04em;white-space:nowrap;}
+  #depthPill{color:var(--glow);}
+  #battWrap{flex:1;display:flex;align-items:center;gap:8px;background:var(--panel);
+    border:1px solid var(--line);border-radius:999px;padding:8px 12px;min-width:0;}
+  #battBar{flex:1;height:10px;border-radius:5px;background:rgba(127,168,160,.25);overflow:hidden;min-width:40px;}
+  #battFill{height:100%;width:100%;border-radius:5px;background:linear-gradient(90deg,var(--teal),var(--glow));transition:width .2s linear;}
+  #battFill.low{background:linear-gradient(90deg,#ff5d6c,#ff9d5c);}
+  #hullPill{color:var(--warm);}
+  #controls{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:flex-end;
+    padding:0 14px calc(14px + env(safe-area-inset-bottom));z-index:5;pointer-events:none;}
+  .btn{pointer-events:auto;min-width:48px;min-height:48px;border-radius:14px;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);font-size:15px;font-weight:800;letter-spacing:.05em;
+    padding:12px 16px;cursor:pointer;}
+  .btn:active{transform:scale(.96);}
+  #lightBtn{border-color:rgba(255,217,160,.5);color:var(--warm);}
+  #lightBtn.bright{background:rgba(255,217,160,.16);}
+  #rightBtns{display:flex;gap:10px;}
+  .iconbtn{width:48px;padding:12px 0;text-align:center;}
+  .overlay{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;background:rgba(1,4,9,.78);backdrop-filter:blur(3px);}
+  .overlay[hidden]{display:none;}
+  .title{font-size:40px;font-weight:900;letter-spacing:.12em;color:var(--glow);
+    text-shadow:0 0 24px rgba(70,240,210,.45);margin:0 0 6px;}
+  .sub{color:var(--mut);font-size:15px;margin:0 0 18px;max-width:340px;line-height:1.5;}
+  .howto{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+    font-size:14px;line-height:1.65;color:var(--ink);max-width:340px;margin:0 0 20px;text-align:left;}
+  .howto b{color:var(--glow);}
+  .howto .w{color:var(--warm);}
+  .bigbtn{min-height:56px;font-size:17px;padding:16px 28px;border-radius:16px;border:1px solid var(--glow);
+    background:rgba(70,240,210,.12);color:var(--glow);font-weight:900;letter-spacing:.08em;cursor:pointer;}
+  .bigbtn:active{transform:scale(.97);}
+  .best{margin-top:14px;color:var(--mut);font-size:13px;letter-spacing:.05em;}
+  .stats{display:flex;gap:18px;margin:0 0 20px;}
+  .stats div{text-align:center;}
+  .stats .n{font-size:28px;font-weight:900;color:var(--glow);}
+  .stats .l{font-size:12px;color:var(--mut);letter-spacing:.08em;margin-top:2px;}
+  #overTitle.lost{color:var(--danger);text-shadow:0 0 24px rgba(255,93,108,.4);}
+  #toast{position:absolute;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 16px;
+    font-size:13px;font-weight:700;color:var(--warm);z-index:6;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
+  #toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div class="pill" id="depthPill">0 m</div>
+    <div id="battWrap" aria-label="Battery">
+      <div id="battBar"><div id="battFill"></div></div>
+    </div>
+    <div class="pill" id="hullPill" aria-label="Hull">◆◆◆</div>
+  </div>
+  <div id="toast"></div>
+  <div id="controls">
+    <button class="btn" id="lightBtn" aria-label="Toggle dive light">LIGHT: CRUISE</button>
+    <div id="rightBtns">
+      <button class="btn iconbtn" id="soundBtn" aria-label="Toggle sound">♪</button>
+      <button class="btn iconbtn" id="pauseBtn" aria-label="Pause">II</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="startOv">
+    <h1 class="title">HADAL DRIFT</h1>
+    <p class="sub">The trench goes down farther than any light can reach. Take the little sub. Come back up in the stories.</p>
+    <div class="howto">
+      <b>Drag</b> anywhere to steer, or use arrow keys.<br>
+      <span class="w">LIGHT: CRUISE</span> is dim and quiet. Predators mostly ignore you.<br>
+      <span class="w">LIGHT: BRIGHT</span> sees far but drinks the battery and <b>draws hunters</b>.<br>
+      Touch glowing specimens to recharge. Three hull plates. Mind the dark.
+    </div>
+    <button class="bigbtn" id="startBtn">FLOOD THE BALLAST TANKS</button>
+    <div class="best" id="startBest"></div>
+  </div>
+
+  <div class="overlay" id="pauseOv" hidden>
+    <h1 class="title" style="font-size:30px">PAUSED</h1>
+    <p class="sub">The trench waits.</p>
+    <button class="bigbtn" id="resumeBtn">RESUME THE DESCENT</button>
+  </div>
+
+  <div class="overlay" id="overOv" hidden>
+    <h1 class="title lost" id="overTitle">LOST TO THE DARK</h1>
+    <p class="sub" id="overSub"></p>
+    <div class="stats">
+      <div><div class="n" id="stDepth">0</div><div class="l">METERS</div></div>
+      <div><div class="n" id="stSpec">0</div><div class="l">SPECIMENS</div></div>
+      <div><div class="n" id="stScore">0</div><div class="l">SCORE</div></div>
+    </div>
+    <button class="bigbtn" id="againBtn">DESCEND AGAIN</button>
+    <div class="best" id="overBest"></div>
+  </div>
+</div>
+<script>
+'use strict';
+/* Hadal Drift: a deep-sea descent game. Single file, phone-first.
+   Pure game-logic functions are kept DOM-free so the node harness can test them. */
+/* ---------- utils ---------- */
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function mulberry32(seed){
+  var s = seed>>>0;
+  return function(){
+    s |= 0; s = (s + 0x6D2B79F5) | 0;
+    var t = Math.imul(s ^ (s>>>15), 1|s);
+    t = (t + Math.imul(t ^ (t>>>7), 61|t)) ^ t;
+    return ((t ^ (t>>>14))>>>0)/4294967296;
+  };
+}
+
+/* ---------- tuning constants (harness-tested) ---------- */
+var PX_PER_M   = 40;     /* pixels of descent per meter of depth */
+var DRAIN      = { cruise: 1.15, bright: 3.4 };  /* battery %/s */
+var DRAIN_DEPTH_K = 0.35;/* extra drain fraction per 4000 m */
+var SPEC_BATTERY = 14;   /* battery % per specimen */
+var SIGHT      = { cruise: 150, bright: 310 };   /* light radius px */
+var ATTRACT_R  = 400;    /* predator homing radius in BRIGHT */
+var HULL_MAX   = 3;
+var INVULN_T   = 2.0;    /* seconds of invulnerability after a hit */
+var PRED_SPEED = 120;    /* predator swim px/s */
+var PRED_ACCEL = 260;    /* homing accel px/s^2 */
+var PLAYER_SPEED = 300;  /* keyboard speed px/s */
+var SCORE_PER_SPEC = 10;
+
+/* Pure: battery drain per second for a mode at a depth (meters). */
+function drainRate(mode, depthM){
+  var base = DRAIN[mode] || DRAIN.cruise;
+  return base * (1 + DRAIN_DEPTH_K * depthM / 4000);
+}
+/* Pure: apply one simulation tick of battery drain. Returns new battery. */
+function applyDrain(battery, mode, depthM, dt){
+  return Math.max(0, battery - drainRate(mode, depthM) * dt);
+}
+/* Pure: apply a specimen pickup. Returns {battery, specimens}. */
+function applyPickup(battery, specimens){
+  return { battery: Math.min(100, battery + SPEC_BATTERY), specimens: specimens + 1 };
+}
+/* Pure: score from depth and specimens. */
+function scoreFor(depthM, specimens){
+  return Math.floor(depthM) + specimens * SCORE_PER_SPEC;
+}
+/* Pure: predator steering for one tick. Mutates p.vx/p.vy.
+   In BRIGHT within ATTRACT_R it homes toward the player; otherwise wanders. */
+function predatorSteer(p, px, py, mode, dt){
+  var dx = px - p.x, dy = py - p.y;
+  var d = Math.sqrt(dx*dx + dy*dy) || 1;
+  if (mode === 'bright' && d < ATTRACT_R){
+    p.vx += (dx/d) * PRED_ACCEL * dt;
+    p.vy += (dy/d) * PRED_ACCEL * dt;
+  } else {
+    p.wt += dt;
+    var a = p.baseA + Math.sin(p.wt * 0.9 + p.seed) * 1.1;
+    p.vx = lerp(p.vx, Math.cos(a) * PRED_SPEED * 0.7, Math.min(1, dt*2));
+    p.vy = lerp(p.vy, Math.sin(a) * PRED_SPEED * 0.7, Math.min(1, dt*2));
+  }
+  var sp = Math.sqrt(p.vx*p.vx + p.vy*p.vy);
+  var max = mode === 'bright' ? PRED_SPEED * 1.25 : PRED_SPEED;
+  if (sp > max){ p.vx = p.vx/sp*max; p.vy = p.vy/sp*max; }
+}
+/* Pure: circle collision test. */
+function touching(ax, ay, ar, bx, by, br){
+  var dx = ax-bx, dy = ay-by;
+  return dx*dx + dy*dy < (ar+br)*(ar+br);
+}
+
+/* ---------- storage ---------- */
+var store = {
+  get: function(k, dflt){
+    try{
+      var v = (typeof localStorage !== 'undefined') ? localStorage.getItem(k) : null;
+      if (v === null || v === undefined) return dflt;
+      var n = parseFloat(v);
+      return isNaN(n) ? dflt : n;
+    }catch(e){ return dflt; }
+  },
+  set: function(k, v){
+    try{ if (typeof localStorage !== 'undefined') localStorage.setItem(k, String(v)); }catch(e){}
+  }
+};
+var K = { best:'hd-best', spec:'hd-spec', sound:'hd-sound', games:'hd-games' };
+/* ---------- audio: WebAudio ambient synth, zero files ---------- */
+var AU = {
+  ctx:null, master:null, on:true, pingT:0,
+  init: function(){
+    if (this.ctx) return;
+    try{
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.5;
+      this.master.connect(this.ctx.destination);
+      /* abyssal drone: two detuned triangles through a lowpass, slow breathing LFO */
+      var g = this.ctx.createGain(); g.gain.value = 0.05;
+      var lp = this.ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 220;
+      var o1 = this.ctx.createOscillator(); o1.type='triangle'; o1.frequency.value = 55;
+      var o2 = this.ctx.createOscillator(); o2.type='triangle'; o2.frequency.value = 55.7;
+      var lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.07;
+      var lfoG = this.ctx.createGain(); lfoG.gain.value = 0.025;
+      lfo.connect(lfoG); lfoG.connect(g.gain);
+      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(this.master);
+      o1.start(); o2.start(); lfo.start();
+      this.on = store.get(K.sound, 1) === 1;
+      this.master.gain.value = this.on ? 0.5 : 0;
+    }catch(e){}
+  },
+  toggle: function(){
+    this.on = !this.on;
+    store.set(K.sound, this.on ? 1 : 0);
+    if (this.master) this.master.gain.value = this.on ? 0.5 : 0;
+    return this.on;
+  },
+  blip: function(freq, dur, vol, type){
+    if (!this.ctx || !this.on) return;
+    try{
+      var t = this.ctx.currentTime;
+      var o = this.ctx.createOscillator(); o.type = type || 'sine'; o.frequency.value = freq;
+      var g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + dur + 0.05);
+    }catch(e){}
+  },
+  chime: function(){ this.blip(659.25, 0.5, 0.18, 'triangle'); var self=this; setTimeout(function(){ self.blip(987.77, 0.7, 0.14, 'triangle'); }, 90); },
+  thud: function(){ this.blip(70, 0.4, 0.3, 'sine'); },
+  sonar: function(){ this.blip(880, 1.2, 0.05, 'sine'); },
+  gameover: function(){ var self=this; this.blip(220, 0.8, 0.2, 'triangle'); setTimeout(function(){ self.blip(146.8, 1.4, 0.2, 'triangle'); }, 350); }
+};
+
+/* ---------- game state ---------- */
+var G = null;
+function newRun(seed){
+  return {
+    t: 0, seed: seed, rng: mulberry32(seed),
+    px: 0, py: 0, pvx: 0, pvy: 0,       /* player pos/vel (world px) */
+    tx: 0, ty: 0, dragging: false,      /* drag target */
+    camx: 0, camy: 0,
+    mode: 'cruise',
+    battery: 100, hull: HULL_MAX, invuln: 0,
+    specimens: 0,
+    ents: [],        /* {kind:'spec'|'pred', x,y, vx,vy, r, wt, baseA, seed, ph} */
+    snow: [],        /* marine snow particles */
+    over: false, overWhy: '', paused: false, started: false,
+    keys: {},
+    faceA: Math.PI/2
+  };
+}
+function depthM(){ return Math.max(0, G.py / PX_PER_M); }
+
+/* Spawn entities around the camera using the run's seeded rng. */
+function spawnAround(){
+  var want = 14 + Math.min(14, Math.floor(depthM()/250)); /* more life deeper */
+  var alive = G.ents.length;
+  var cx = G.camx, cy = G.camy, R = 950;
+  for (var i = alive; i < want; i++){
+    var r = G.rng();
+    var a = G.rng() * Math.PI * 2;
+    var d = 500 + G.rng() * 450;
+    var x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+    /* deeper water: more predators */
+    var predChance = clamp(0.18 + depthM()/3000, 0.18, 0.45);
+    if (r < predChance){
+      G.ents.push({ kind:'pred', x:x, y:y, vx:0, vy:0, r:26,
+        wt: G.rng()*10, baseA: G.rng()*Math.PI*2, seed: G.rng()*10, ph: G.rng()*Math.PI*2 });
+    } else {
+      G.ents.push({ kind:'spec', x:x, y:y, vx:(G.rng()-0.5)*20, vy:(G.rng()-0.5)*20, r:16,
+        ph: G.rng()*Math.PI*2, seed: G.rng()*10 });
+    }
+  }
+  /* marine snow */
+  if (!G.snow.length){
+    for (var s = 0; s < 60; s++){
+      G.snow.push({ x: G.rng()*2000-1000, y: G.rng()*2000-1000, r: 1+G.rng()*2, v: 6+G.rng()*14 });
+    }
+  }
+}
+function cullFar(){
+  var cx = G.camx, cy = G.camy;
+  G.ents = G.ents.filter(function(e){
+    return Math.abs(e.x-cx) < 1100 && Math.abs(e.y-cy) < 1100;
+  });
+}
+
+/* One simulation tick. Returns 'dark' | 'hull' when the run ends, else ''. */
+function tick(dt){
+  G.t += dt;
+  var dm = depthM();
+  /* player movement: drag target or keyboard */
+  var k = G.keys;
+  var kvx = 0, kvy = 0;
+  if (k.left) kvx -= 1; if (k.right) kvx += 1;
+  if (k.up) kvy -= 1; if (k.down) kvy += 1;
+  if (kvx || kvy){
+    var kl = Math.sqrt(kvx*kvx+kvy*kvy);
+    G.pvx = kvx/kl*PLAYER_SPEED; G.pvy = kvy/kl*PLAYER_SPEED;
+    G.px += G.pvx*dt; G.py += G.pvy*dt;
+    G.faceA = Math.atan2(G.pvy, G.pvx);
+  } else if (G.dragging){
+    var dx = G.tx - G.px, dy = G.ty - G.py;
+    var d = Math.sqrt(dx*dx+dy*dy);
+    var sp = Math.min(PLAYER_SPEED*1.4, d*6);
+    if (d > 4){
+      G.pvx = dx/d*sp; G.pvy = dy/d*sp;
+      G.px += G.pvx*dt; G.py += G.pvy*dt;
+      G.faceA = Math.atan2(G.pvy, G.pvx);
+    } else { G.pvx = 0; G.pvy = 0; }
+  } else { G.pvx *= 0.9; G.pvy *= 0.9; }
+  G.px = clamp(G.px, -700, 700);
+  if (G.py < 0) G.py = 0;
+  /* camera follows */
+  G.camx = lerp(G.camx, G.px, Math.min(1, dt*4));
+  G.camy = lerp(G.camy, G.py - 60, Math.min(1, dt*4));
+  /* battery */
+  G.battery = applyDrain(G.battery, G.mode, dm, dt);
+  if (G.battery <= 0){ return 'dark'; }
+  if (G.invuln > 0) G.invuln -= dt;
+  spawnAround(); cullFar();
+  /* entities */
+  for (var i = G.ents.length-1; i >= 0; i--){
+    var e = G.ents[i];
+    if (e.kind === 'spec'){
+      e.x += e.vx*dt; e.y += e.vy*dt;
+      if (touching(G.px, G.py, 30, e.x, e.y, e.r)){
+        var pr = applyPickup(G.battery, G.specimens);
+        G.battery = pr.battery; G.specimens = pr.specimens;
+        G.ents.splice(i,1);
+        AU.chime();
+        continue;
+      }
+    } else {
+      predatorSteer(e, G.px, G.py, G.mode, dt);
+      e.x += e.vx*dt; e.y += e.vy*dt;
+      if (touching(G.px, G.py, 26, e.x, e.y, e.r) && G.invuln <= 0){
+        G.hull -= 1; G.invuln = INVULN_T;
+        AU.thud();
+        toast(G.hull > 0 ? 'Hull breached' : 'Hull gone');
+        /* knock the hunter away a little */
+        var hx = e.x-G.px, hy = e.y-G.py, hd = Math.sqrt(hx*hx+hy*hy)||1;
+        e.vx = hx/hd*PRED_SPEED*1.5; e.vy = hy/hd*PRED_SPEED*1.5;
+        if (G.hull <= 0){ return 'hull'; }
+      }
+    }
+  }
+  /* ambient sonar ping */
+  AU.pingT -= dt;
+  if (AU.pingT <= 0){ AU.pingT = 7; AU.sonar(); }
+  return '';
+}
+/* ---------- rendering ---------- */
+var cv = document.getElementById('game');
+var cx2d = cv.getContext('2d');
+var DPR = 1, W = 0, H = 0;
+var reduceMotion = (typeof matchMedia !== 'undefined') && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function fitCanvas(){
+  DPR = Math.min(3, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+}
+window.addEventListener('resize', fitCanvas); fitCanvas();
+
+function waterColor(dm){
+  /* surface teal-black fading to true abyss */
+  var t = clamp(dm/2500, 0, 1);
+  return { top:[6,26,38], bot:[1,4,9], mix:t };
+}
+function render(){
+  var dm = depthM();
+  var wc = waterColor(dm);
+  cx2d.setTransform(DPR,0,0,DPR,0,0);
+  var grd = cx2d.createLinearGradient(0,0,0,H);
+  grd.addColorStop(0, 'rgb('+Math.round(lerp(wc.top[0],wc.bot[0],wc.mix))+','+Math.round(lerp(wc.top[1],wc.bot[1],wc.mix))+','+Math.round(lerp(wc.top[2],wc.bot[2],wc.mix))+')');
+  grd.addColorStop(1, 'rgb(1,4,9)');
+  cx2d.fillStyle = grd; cx2d.fillRect(0,0,W,H);
+  var ox = W/2 - G.camx, oy = H/2 - G.camy;
+  var px = G.px + ox, py = G.py + oy;
+  /* marine snow */
+  cx2d.fillStyle = 'rgba(160,200,195,.35)';
+  for (var s = 0; s < G.snow.length; s++){
+    var sn = G.snow[s];
+    var sx = ((sn.x - G.camx*0.6) % 1600 + 1600) % 1600 - 800 + W/2;
+    var sy = ((sn.y - G.camy*0.6 + (reduceMotion?0:G.t*sn.v)) % 1600 + 1600) % 1600 - 800 + H/2;
+    cx2d.beginPath(); cx2d.arc(sx, sy, sn.r, 0, 7); cx2d.fill();
+  }
+  /* entities (dimmed; their glow is added after the dark overlay) */
+  for (var i = 0; i < G.ents.length; i++){
+    var e = G.ents[i], ex = e.x+ox, ey = e.y+oy;
+    if (ex < -80 || ex > W+80 || ey < -80 || ey > H+80) continue;
+    if (e.kind === 'spec'){
+      var pulse = reduceMotion ? 0.8 : 0.65 + 0.35*Math.sin(G.t*2.4 + e.ph);
+      cx2d.fillStyle = 'rgba(70,240,210,'+(0.25+0.25*pulse)+')';
+      cx2d.beginPath(); cx2d.arc(ex, ey, e.r*(1.4+0.5*pulse), 0, 7); cx2d.fill();
+      cx2d.fillStyle = 'rgba(190,255,244,.9)';
+      cx2d.beginPath(); cx2d.arc(ex, ey-4, 7, Math.PI, 0); cx2d.fill();
+      cx2d.strokeStyle = 'rgba(190,255,244,.55)'; cx2d.lineWidth = 1.5;
+      for (var t = -2; t <= 2; t++){
+        cx2d.beginPath(); cx2d.moveTo(ex+t*4, ey+2);
+        cx2d.quadraticCurveTo(ex+t*5, ey+12, ex+t*4+Math.sin(G.t*3+e.ph+t)*3, ey+20);
+        cx2d.stroke();
+      }
+    } else {
+      /* anglerfish hunter: dark body, pale lure */
+      var ang = Math.atan2(e.vy, e.vx);
+      cx2d.save(); cx2d.translate(ex, ey); cx2d.rotate(ang);
+      cx2d.fillStyle = '#0d1620';
+      cx2d.beginPath(); cx2d.ellipse(0, 0, 26, 15, 0, 0, 7); cx2d.fill();
+      cx2d.beginPath(); cx2d.moveTo(-22, 0); cx2d.lineTo(-36, -10); cx2d.lineTo(-36, 10); cx2d.closePath(); cx2d.fill();
+      cx2d.strokeStyle = '#233140'; cx2d.lineWidth = 2;
+      cx2d.beginPath(); cx2d.moveTo(8, -12); cx2d.quadraticCurveTo(20, -26, 30, -22); cx2d.stroke();
+      cx2d.restore();
+      /* lure glow drawn after dark overlay */
+      e._lx = ex; e._ly = ey; e._la = ang;
+    }
+  }
+  /* player bathyscaphe */
+  var blink = G.invuln > 0 && Math.floor(G.t*10)%2 === 0;
+  if (!blink){
+    cx2d.save(); cx2d.translate(px, py); cx2d.rotate(G.faceA);
+    cx2d.fillStyle = 'rgba(255,217,160,.10)';
+    cx2d.beginPath(); cx2d.moveTo(14,0); cx2d.lineTo(120,-44); cx2d.lineTo(120,44); cx2d.closePath(); cx2d.fill();
+    cx2d.fillStyle = '#1b2a3a';
+    cx2d.beginPath();
+    if (cx2d.roundRect) cx2d.roundRect(-20,-13,44,26,9); else cx2d.rect(-20,-13,44,26);
+    cx2d.fill();
+    cx2d.strokeStyle = 'rgba(255,217,160,.7)'; cx2d.lineWidth = 2; cx2d.stroke();
+    cx2d.fillStyle = '#ffd9a0';
+    cx2d.beginPath(); cx2d.arc(8, 0, 6, 0, 7); cx2d.fill();
+    cx2d.fillStyle = '#0d1620';
+    cx2d.fillRect(-30, -8, 10, 16);
+    cx2d.restore();
+  }
+  /* darkness: the light radius is the only clear water */
+  var sight = SIGHT[G.mode] * (reduceMotion ? 1 : 1 + 0.04*Math.sin(G.t*1.7));
+  var dark = cx2d.createRadialGradient(px, py, sight*0.35, px, py, sight*2.1);
+  dark.addColorStop(0, 'rgba(1,4,10,0)');
+  dark.addColorStop(0.45, 'rgba(1,4,10,.55)');
+  dark.addColorStop(1, 'rgba(1,4,10,.94)');
+  cx2d.fillStyle = dark; cx2d.fillRect(0,0,W,H);
+  /* bioluminescence shines through the dark */
+  for (var j = 0; j < G.ents.length; j++){
+    var f = G.ents[j], fx = f.x+ox, fy = f.y+oy;
+    if (fx < -60 || fx > W+60 || fy < -60 || fy > H+60) continue;
+    var fd = Math.sqrt((fx-px)*(fx-px)+(fy-py)*(fy-py));
+    var vis = clamp(1.3 - fd/(sight*1.6), 0.12, 1);
+    if (f.kind === 'spec'){
+      var pl = reduceMotion ? 0.8 : 0.65 + 0.35*Math.sin(G.t*2.4 + f.ph);
+      cx2d.fillStyle = 'rgba(70,240,210,'+(0.5*pl*vis+0.1)+')';
+      cx2d.beginPath(); cx2d.arc(fx, fy, 10*pl+4, 0, 7); cx2d.fill();
+    } else {
+      var lx = f._lx + Math.cos(f._la)*30, ly = f._ly + Math.sin(f._la)*-22;
+      cx2d.fillStyle = 'rgba(255,240,200,'+(0.75*vis)+')';
+      cx2d.beginPath(); cx2d.arc(lx, ly, 4.5, 0, 7); cx2d.fill();
+      cx2d.fillStyle = 'rgba(255,240,200,'+(0.18*vis)+')';
+      cx2d.beginPath(); cx2d.arc(lx, ly, 12, 0, 7); cx2d.fill();
+    }
+  }
+  /* vignette */
+  var vg = cx2d.createRadialGradient(W/2,H/2,Math.min(W,H)*0.42, W/2,H/2, Math.max(W,H)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.5)');
+  cx2d.fillStyle = vg; cx2d.fillRect(0,0,W,H);
+}
+
+/* ---------- HUD / overlays ---------- */
+var el = function(id){ return document.getElementById(id); };
+var toastT = null;
+function toast(msg){
+  var t = el('toast'); t.textContent = msg; t.classList.add('show');
+  if (toastT) clearTimeout(toastT);
+  toastT = setTimeout(function(){ t.classList.remove('show'); }, 1600);
+}
+function hud(){
+  el('depthPill').textContent = Math.floor(depthM()) + ' m';
+  var bf = el('battFill');
+  bf.style.width = clamp(G.battery,0,100) + '%';
+  bf.classList.toggle('low', G.battery < 25);
+  var hull = '';
+  for (var i = 0; i < HULL_MAX; i++) hull += i < G.hull ? '◆' : '◇';
+  el('hullPill').textContent = hull;
+  var lb = el('lightBtn');
+  lb.textContent = 'LIGHT: ' + G.mode.toUpperCase();
+  lb.classList.toggle('bright', G.mode === 'bright');
+  el('soundBtn').textContent = AU.on ? '♪' : '✕';
+  el('soundBtn').style.opacity = AU.on ? 1 : 0.5;
+}
+function showStart(){
+  var b = Math.floor(store.get(K.best, 0));
+  el('startBest').textContent = b > 0 ? 'Best descent: ' + b + ' m' : 'No descents yet. The trench is waiting.';
+  el('startOv').hidden = false; el('overOv').hidden = true; el('pauseOv').hidden = true;
+}
+function startRun(){
+  AU.init();
+  if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
+  var games = store.get(K.games, 0);
+  G = newRun(Date.now() % 2147483647);
+  G.started = true;
+  el('startOv').hidden = true; el('overOv').hidden = true; el('pauseOv').hidden = true;
+  toast('Descend. Conserve the light.');
+}
+function endRun(why){
+  G.over = true; G.overWhy = why;
+  AU.gameover();
+  var dm = Math.floor(depthM());
+  var score = scoreFor(dm, G.specimens);
+  var best = Math.floor(store.get(K.best, 0));
+  var isBest = dm > best;
+  if (isBest) store.set(K.best, dm);
+  store.set(K.spec, store.get(K.spec, 0) + G.specimens);
+  store.set(K.games, store.get(K.games, 0) + 1);
+  el('overTitle').textContent = why === 'dark' ? 'LOST TO THE DARK' : 'HULL CRUSHED';
+  el('overSub').textContent = why === 'dark'
+    ? 'The battery died and the dark closed in. The specimens keep glowing without you.'
+    : 'Three plates, and the trench took all three. Something down there is still hungry.';
+  el('stDepth').textContent = dm;
+  el('stSpec').textContent = G.specimens;
+  el('stScore').textContent = score;
+  el('overBest').textContent = isBest ? 'New best descent.' : 'Best descent: ' + Math.max(best, dm) + ' m';
+  el('overOv').hidden = false;
+}
+function setPaused(p){
+  if (!G || !G.started || G.over) return;
+  G.paused = p;
+  el('pauseOv').hidden = !p;
+}
+
+/* ---------- input ---------- */
+var dragId = null, dragSX = 0, dragSY = 0, dragPX = 0, dragPY = 0;
+cv.addEventListener('pointerdown', function(ev){
+  if (!G || !G.started || G.over || G.paused) return;
+  dragId = ev.pointerId;
+  dragSX = ev.clientX; dragSY = ev.clientY;
+  dragPX = G.px; dragPY = G.py;
+  G.dragging = true; G.tx = G.px; G.ty = G.py;
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+cv.addEventListener('pointermove', function(ev){
+  if (ev.pointerId !== dragId || !G) return;
+  G.tx = dragPX + (ev.clientX - dragSX) * 1.15;
+  G.ty = dragPY + (ev.clientY - dragSY) * 1.15;
+});
+function endDrag(ev){
+  if (ev.pointerId !== dragId) return;
+  dragId = null; if (G) G.dragging = false;
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+window.addEventListener('keydown', function(ev){
+  if (!G) return;
+  var k = ev.key.toLowerCase();
+  if (k === 'arrowleft' || k === 'a') G.keys.left = true;
+  else if (k === 'arrowright' || k === 'd') G.keys.right = true;
+  else if (k === 'arrowup' || k === 'w') G.keys.up = true;
+  else if (k === 'arrowdown' || k === 's') G.keys.down = true;
+  else if (k === 'l') toggleLight();
+  else if (k === 'p' || k === 'escape') setPaused(!G.paused);
+  else if (k === ' '){ if (!G.started || G.over) startRun(); ev.preventDefault(); }
+});
+window.addEventListener('keyup', function(ev){
+  if (!G) return;
+  var k = ev.key.toLowerCase();
+  if (k === 'arrowleft' || k === 'a') G.keys.left = false;
+  else if (k === 'arrowright' || k === 'd') G.keys.right = false;
+  else if (k === 'arrowup' || k === 'w') G.keys.up = false;
+  else if (k === 'arrowdown' || k === 's') G.keys.down = false;
+});
+function toggleLight(){
+  if (!G || !G.started || G.over) return;
+  G.mode = G.mode === 'cruise' ? 'bright' : 'cruise';
+  toast(G.mode === 'bright' ? 'Bright. They can see you now.' : 'Cruise. Quiet and dim.');
+  hud();
+}
+el('lightBtn').addEventListener('click', function(){ AU.init(); toggleLight(); });
+el('soundBtn').addEventListener('click', function(){ AU.init(); AU.toggle(); hud(); });
+el('pauseBtn').addEventListener('click', function(){ setPaused(true); });
+el('resumeBtn').addEventListener('click', function(){ setPaused(false); });
+el('startBtn').addEventListener('click', startRun);
+el('againBtn').addEventListener('click', startRun);
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) setPaused(true); /* pause, never end the run */
+});
+
+/* ---------- main loop ---------- */
+var lastT = 0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  if (!G || !G.started) { if (G) render(); return; }
+  if (G.paused || G.over){ render(); hud(); return; }
+  var dt = Math.min(0.05, (ts - lastT) / 1000 || 0.016);
+  lastT = ts;
+  var end = tick(dt);
+  if (end) endRun(end);
+  render(); hud();
+}
+G = newRun(12345);
+AU.on = store.get(K.sound, 1) === 1;
+showStart();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
